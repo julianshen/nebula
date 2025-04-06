@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/julianshen/nebula/api/server"
 	"github.com/julianshen/nebula/data"
 	"github.com/julianshen/nebula/handlers/triggers"
 	"github.com/nats-io/nats.go"
@@ -49,6 +50,20 @@ func main() {
 	// Start watching for changes
 	store.Watch(ctx)
 	log.Println("Watching for trigger changes in etcd")
+
+	// Start gRPC server
+	grpcAddress := viper.GetString("grpc.address")
+	if grpcAddress == "" {
+		grpcAddress = ":50051"
+	}
+
+	triggerServer := server.NewTriggerServer(store)
+	go func() {
+		if err := triggerServer.Start(grpcAddress); err != nil {
+			log.Fatalf("Failed to start gRPC server: %v", err)
+		}
+	}()
+	log.Printf("gRPC server started on %s", grpcAddress)
 
 	// Connect to NATS
 	natsURL := viper.GetString("nats.url")
