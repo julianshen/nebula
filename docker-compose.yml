@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:latest
+    container_name: nebula-mongo
+    ports:
+      - "27017:27017"
+    restart: unless-stopped
+
+  nats:
+    image: nats:latest
+    container_name: nebula-nats
+    ports:
+      - "4222:4222"
+    restart: unless-stopped
+
+  etcd:
+    image: bitnami/etcd:latest
+    container_name: nebula-etcd
+    environment:
+      - ALLOW_NONE_AUTHENTICATION=yes
+      - ETCD_ADVERTISE_CLIENT_URLS=http://etcd:2379
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    restart: unless-stopped

@@ -1,0 +1,16 @@
+mongo:
+  uri: "mongodb://localhost:27017"
+  database: "eventstore"
+
+nats:
+  url: "nats://localhost:4222"
+  subject: "event.test"
+  queue_group: "eventstore-workers"
+
+etcd:
+  endpoints:
+    - "localhost:2379"
+  trigger_prefix: "/triggers/"
+
+batch-size: 1
+batch-timeout: 1s
