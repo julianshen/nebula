@@ -22,6 +22,10 @@ var (
 	triggerCacheMu   sync.RWMutex
 	cacheInitialized bool
 	cacheUpdateCh    = make(chan struct{}, 1)
+
+	// Namespace event processors
+	namespaceProcessors   = make(map[string]chan *data.Event)
+	namespaceProcessorsMu sync.RWMutex
 )
 
 func main() {
@@ -103,11 +107,11 @@ func main() {
 	var sub *nats.Subscription
 	if queueGroup != "" {
 		sub, err = nc.QueueSubscribe(subject, queueGroup, func(msg *nats.Msg) {
-			handleMessage(msg, store)
+			handleMessage(ctx, msg, store)
 		})
 	} else {
 		sub, err = nc.Subscribe(subject, func(msg *nats.Msg) {
-			handleMessage(msg, store)
+			handleMessage(ctx, msg, store)
 		})
 	}
 
@@ -153,6 +157,9 @@ func initTriggerCache(store *triggers.EtcdStore) {
 
 	for _, trigger := range allTriggers {
 		triggerCache[trigger.Namespace] = append(triggerCache[trigger.Namespace], trigger)
+
+		// Create namespace processor if it doesn't exist
+		ensureNamespaceProcessor(trigger.Namespace)
 	}
 
 	cacheInitialized = true
@@ -198,6 +205,15 @@ func updateTriggerCache(store *triggers.EtcdStore) {
 
 	// Update cache
 	triggerCacheMu.Lock()
+
+	// Check for new namespaces
+	for namespace := range newCache {
+		if _, exists := triggerCache[namespace]; !exists {
+			// New namespace found, create processor
+			ensureNamespaceProcessor(namespace)
+		}
+	}
+
 	triggerCache = newCache
 	triggerCacheMu.Unlock()
 
@@ -218,21 +234,37 @@ func getTriggersByNamespace(namespace string, store *triggers.EtcdStore) []*data
 	return triggerCache[namespace]
 }
 
-// handleMessage processes an incoming NATS message
-func handleMessage(msg *nats.Msg, store *triggers.EtcdStore) {
-	// Parse event
-	var event data.Event
-	if err := json.Unmarshal(msg.Data, &event); err != nil {
-		log.Printf("Error parsing event: %v", err)
-		return
+// ensureNamespaceProcessor ensures a processor exists for the namespace
+func ensureNamespaceProcessor(namespace string) {
+	namespaceProcessorsMu.Lock()
+	defer namespaceProcessorsMu.Unlock()
+
+	if _, exists := namespaceProcessors[namespace]; !exists {
+		// Create a buffered channel for this namespace
+		namespaceProcessors[namespace] = make(chan *data.Event, 100)
+
+		// Start a goroutine to process events for this namespace
+		go processNamespaceEvents(namespace, namespaceProcessors[namespace])
+		log.Printf("Started event processor for namespace: %s", namespace)
 	}
+}
 
-	log.Printf("Received event: %s, type: %s, namespace: %s",
-		event.ID, event.EventType, event.Namespace)
+// processNamespaceEvents processes events for a specific namespace
+func processNamespaceEvents(namespace string, eventCh <-chan *data.Event) {
+	for event := range eventCh {
+		processEvent(namespace, event)
+	}
+}
 
-	// Get triggers for this namespace from cache
-	namespaceTriggers := getTriggersByNamespace(event.Namespace, store)
-	log.Printf("Evaluating %d triggers for namespace %s", len(namespaceTriggers), event.Namespace)
+// processEvent processes a single event for a namespace
+func processEvent(namespace string, event *data.Event) {
+	// Get triggers for this namespace
+	triggerCacheMu.RLock()
+	namespaceTriggers := triggerCache[namespace]
+	triggerCacheMu.RUnlock()
+
+	log.Printf("Processing event %s in namespace %s with %d triggers",
+		event.ID, namespace, len(namespaceTriggers))
 
 	// Evaluate each trigger
 	for _, trigger := range namespaceTriggers {
@@ -250,9 +282,49 @@ func handleMessage(msg *nats.Msg, store *triggers.EtcdStore) {
 		}
 
 		// Evaluate trigger conditions
-		if triggers.MatchTrigger(trigger, &event) {
+		if triggers.MatchTrigger(trigger, event) {
 			log.Printf("Trigger matched: %s - %s", trigger.ID, trigger.Name)
 			// TODO: Execute trigger action
 		}
+	}
+}
+
+// handleMessage processes an incoming NATS message
+func handleMessage(ctx context.Context, msg *nats.Msg, store *triggers.EtcdStore) {
+	// Parse event
+	var event data.Event
+	if err := json.Unmarshal(msg.Data, &event); err != nil {
+		log.Printf("Error parsing event: %v", err)
+		return
+	}
+
+	log.Printf("Received event: %s, type: %s, namespace: %s",
+		event.ID, event.EventType, event.Namespace)
+
+	// Ensure namespace processor exists
+	ensureNamespaceProcessor(event.Namespace)
+
+	// Get the namespace processor
+	namespaceProcessorsMu.RLock()
+	processor, exists := namespaceProcessors[event.Namespace]
+	namespaceProcessorsMu.RUnlock()
+
+	if !exists {
+		log.Printf("No processor for namespace %s, creating one", event.Namespace)
+		ensureNamespaceProcessor(event.Namespace)
+
+		namespaceProcessorsMu.RLock()
+		processor = namespaceProcessors[event.Namespace]
+		namespaceProcessorsMu.RUnlock()
+	}
+
+	// Send event to namespace processor
+	select {
+	case processor <- &event:
+		// Event sent to processor
+	default:
+		// Channel is full, log warning and process directly
+		log.Printf("Warning: Processor channel for namespace %s is full, processing directly", event.Namespace)
+		processEvent(event.Namespace, &event)
 	}
 }
