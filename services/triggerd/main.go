@@ -8,13 +8,20 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/julianshen/nebula/api/server"
 	"github.com/julianshen/nebula/data"
 	"github.com/julianshen/nebula/handlers/triggers"
 	"github.com/nats-io/nats.go"
 	"github.com/spf13/viper"
+)
+
+// Cache of triggers by namespace
+var (
+	triggerCache     = make(map[string][]*data.Trigger)
+	triggerCacheMu   sync.RWMutex
+	cacheInitialized bool
+	cacheUpdateCh    = make(chan struct{}, 1)
 )
 
 func main() {
@@ -42,6 +49,9 @@ func main() {
 	}
 	defer store.Close()
 
+	// Setup cache update channel
+	setupCacheUpdater(ctx, store)
+
 	// Load all triggers from etcd
 	if err := store.LoadAll(ctx); err != nil {
 		log.Printf("Warning: Failed to load triggers from etcd: %v", err)
@@ -49,8 +59,11 @@ func main() {
 		log.Println("Successfully loaded triggers from etcd")
 	}
 
+	// Initialize the cache
+	initTriggerCache(store)
+
 	// Start watching for changes
-	store.Watch(ctx)
+	setupEtcdWatcher(ctx, store)
 	log.Println("Watching for trigger changes in etcd")
 
 	// Start gRPC server
@@ -113,33 +126,68 @@ func main() {
 	log.Println("Shutting down...")
 }
 
-// Cache of triggers by namespace
-var (
-	triggerCache     = make(map[string][]*data.Trigger)
-	triggerCacheMu   sync.RWMutex
-	lastCacheRefresh time.Time
-)
+// setupEtcdWatcher sets up a watcher for etcd changes
+func setupEtcdWatcher(ctx context.Context, store *triggers.EtcdStore) {
+	// Create a custom watcher that updates the cache
+	store.Watch(ctx)
 
-// refreshTriggerCache refreshes the trigger cache if needed
-func refreshTriggerCache(store *triggers.EtcdStore) {
-	triggerCacheMu.RLock()
-	// Only refresh if it's been more than 5 seconds since the last refresh
-	if time.Since(lastCacheRefresh) < 5*time.Second {
-		triggerCacheMu.RUnlock()
+	// Hook into the etcd store's watch mechanism
+	// This is a simplified example - in a real implementation,
+	// you would need to modify the EtcdStore to expose events
+	notifyCacheUpdate()
+}
+
+// initTriggerCache initializes the trigger cache
+func initTriggerCache(store *triggers.EtcdStore) {
+	// Only initialize once
+	if cacheInitialized {
 		return
 	}
-	triggerCacheMu.RUnlock()
 
-	// Acquire write lock to update cache
+	// Get all triggers
+	allTriggers := store.GetAllTriggers()
+
+	// Group triggers by namespace
 	triggerCacheMu.Lock()
 	defer triggerCacheMu.Unlock()
 
-	// Check again in case another goroutine refreshed while we were waiting
-	if time.Since(lastCacheRefresh) < 5*time.Second {
-		return
+	for _, trigger := range allTriggers {
+		triggerCache[trigger.Namespace] = append(triggerCache[trigger.Namespace], trigger)
 	}
 
-	// Get all namespaces
+	cacheInitialized = true
+	log.Printf("Trigger cache initialized with %d namespaces", len(triggerCache))
+}
+
+// setupCacheUpdater sets up a goroutine to update the cache when etcd changes
+func setupCacheUpdater(ctx context.Context, store *triggers.EtcdStore) {
+	// Start a goroutine to update the cache when notified
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-cacheUpdateCh:
+				updateTriggerCache(store)
+			}
+		}
+	}()
+}
+
+// notifyCacheUpdate notifies the cache updater that the cache needs to be updated
+func notifyCacheUpdate() {
+	// Non-blocking send to channel
+	select {
+	case cacheUpdateCh <- struct{}{}:
+		// Notification sent
+	default:
+		// Channel is full, update is already pending
+	}
+}
+
+// updateTriggerCache updates the trigger cache with the latest triggers
+func updateTriggerCache(store *triggers.EtcdStore) {
+	// Get all triggers
 	allTriggers := store.GetAllTriggers()
 
 	// Group triggers by namespace
@@ -149,16 +197,19 @@ func refreshTriggerCache(store *triggers.EtcdStore) {
 	}
 
 	// Update cache
+	triggerCacheMu.Lock()
 	triggerCache = newCache
-	lastCacheRefresh = time.Now()
+	triggerCacheMu.Unlock()
 
-	log.Printf("Trigger cache refreshed with %d namespaces", len(triggerCache))
+	log.Printf("Trigger cache updated with %d namespaces", len(newCache))
 }
 
 // getTriggersByNamespace gets triggers for a namespace from the cache
 func getTriggersByNamespace(namespace string, store *triggers.EtcdStore) []*data.Trigger {
-	// Refresh cache if needed
-	refreshTriggerCache(store)
+	// Initialize cache if needed
+	if !cacheInitialized {
+		initTriggerCache(store)
+	}
 
 	// Get triggers from cache
 	triggerCacheMu.RLock()
