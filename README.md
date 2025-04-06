@@ -9,6 +9,7 @@ Nebula is a Go-based event trigger system that uses etcd for configuration stora
 - **Flexible Trigger Conditions**: Define complex trigger conditions with support for logical operators
 - **Event Storage**: Store events in MongoDB for historical analysis
 - **NATS Integration**: Use NATS for event distribution and processing
+- **gRPC API**: Manage triggers via a gRPC API
 - **Docker Support**: Run the complete system with Docker Compose
 
 ## Architecture
@@ -56,9 +57,29 @@ go run services/eventstore/main.go
 go run services/triggerd/main.go
 ```
 
-## Creating Triggers
+## Managing Triggers
 
-You can create triggers using the provided utility:
+### Using the gRPC Client
+
+You can manage triggers using the provided gRPC client utility:
+
+```bash
+# List all triggers in a namespace
+go run utils/grpc_client/main.go --cmd list --namespace sales
+
+# Add a new trigger
+go run utils/grpc_client/main.go --cmd add --namespace sales --name high-value-order --field1 payload.after.amount --op1 gt --value1 1000 --field2 payload.after.region --op2 eq --value2 US
+
+# Update an existing trigger
+go run utils/grpc_client/main.go --cmd update --namespace sales --id high-value-order --name high-value-order --field1 payload.after.amount --op1 gt --value1 2000 --field2 payload.after.region --op2 eq --value2 US
+
+# Remove a trigger
+go run utils/grpc_client/main.go --cmd remove --namespace sales --id high-value-order
+```
+
+### Using the etcd Utility
+
+You can also create triggers directly in etcd using the provided utility:
 
 ```bash
 go run utils/simple_trigger/main.go
