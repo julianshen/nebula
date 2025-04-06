@@ -1,4 +1,4 @@
-package eventstore
+package main
 
 // eventstore is a NATS to MongoDB event store
 // It listens for events on a NATS subject and writes them to a MongoDB collection
