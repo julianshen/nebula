@@ -26,6 +26,7 @@ func main() {
 		amount     = flag.Int("amount", 1500, "Order amount")
 		status     = flag.String("status", "confirmed", "Order status")
 		region     = flag.String("region", "US", "Order region")
+		category   = flag.String("category", "", "Product category")
 	)
 
 	flag.Parse()
@@ -36,7 +37,7 @@ func main() {
 	}
 
 	// Create the event
-	event := createOrderEvent(*objectID, *eventType, *namespace, *objectType, *amount, *status, *region)
+	event := createOrderEvent(*objectID, *eventType, *namespace, *objectType, *amount, *status, *region, *category)
 
 	// Marshal the event to JSON
 	eventJSON, err := json.MarshalIndent(event, "", "  ")
@@ -71,7 +72,7 @@ func main() {
 }
 
 // createOrderEvent creates a test order event
-func createOrderEvent(id, eventType, namespace, objectType string, amount int, status, region string) data.Event {
+func createOrderEvent(id, eventType, namespace, objectType string, amount int, status, region, category string) data.Event {
 	event := data.Event{
 		ID:           id,
 		EventType:    eventType,
@@ -104,6 +105,11 @@ func createOrderEvent(id, eventType, namespace, objectType string, amount int, s
 	event.Payload.After["amount"] = amount
 	event.Payload.After["status"] = status
 	event.Payload.After["region"] = region
+
+	// Add category if provided
+	if category != "" {
+		event.Payload.After["category"] = category
+	}
 
 	return event
 }
