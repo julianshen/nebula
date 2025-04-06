@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/julianshen/nebula/api/server"
 	"github.com/julianshen/nebula/data"
@@ -111,6 +113,60 @@ func main() {
 	log.Println("Shutting down...")
 }
 
+// Cache of triggers by namespace
+var (
+	triggerCache     = make(map[string][]*data.Trigger)
+	triggerCacheMu   sync.RWMutex
+	lastCacheRefresh time.Time
+)
+
+// refreshTriggerCache refreshes the trigger cache if needed
+func refreshTriggerCache(store *triggers.EtcdStore) {
+	triggerCacheMu.RLock()
+	// Only refresh if it's been more than 5 seconds since the last refresh
+	if time.Since(lastCacheRefresh) < 5*time.Second {
+		triggerCacheMu.RUnlock()
+		return
+	}
+	triggerCacheMu.RUnlock()
+
+	// Acquire write lock to update cache
+	triggerCacheMu.Lock()
+	defer triggerCacheMu.Unlock()
+
+	// Check again in case another goroutine refreshed while we were waiting
+	if time.Since(lastCacheRefresh) < 5*time.Second {
+		return
+	}
+
+	// Get all namespaces
+	allTriggers := store.GetAllTriggers()
+
+	// Group triggers by namespace
+	newCache := make(map[string][]*data.Trigger)
+	for _, trigger := range allTriggers {
+		newCache[trigger.Namespace] = append(newCache[trigger.Namespace], trigger)
+	}
+
+	// Update cache
+	triggerCache = newCache
+	lastCacheRefresh = time.Now()
+
+	log.Printf("Trigger cache refreshed with %d namespaces", len(triggerCache))
+}
+
+// getTriggersByNamespace gets triggers for a namespace from the cache
+func getTriggersByNamespace(namespace string, store *triggers.EtcdStore) []*data.Trigger {
+	// Refresh cache if needed
+	refreshTriggerCache(store)
+
+	// Get triggers from cache
+	triggerCacheMu.RLock()
+	defer triggerCacheMu.RUnlock()
+
+	return triggerCache[namespace]
+}
+
 // handleMessage processes an incoming NATS message
 func handleMessage(msg *nats.Msg, store *triggers.EtcdStore) {
 	// Parse event
@@ -123,8 +179,8 @@ func handleMessage(msg *nats.Msg, store *triggers.EtcdStore) {
 	log.Printf("Received event: %s, type: %s, namespace: %s",
 		event.ID, event.EventType, event.Namespace)
 
-	// Get triggers for this namespace
-	namespaceTriggers := store.GetTriggers(event.Namespace)
+	// Get triggers for this namespace from cache
+	namespaceTriggers := getTriggersByNamespace(event.Namespace, store)
 	log.Printf("Evaluating %d triggers for namespace %s", len(namespaceTriggers), event.Namespace)
 
 	// Evaluate each trigger
