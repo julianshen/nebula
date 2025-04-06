@@ -1,0 +1,86 @@
+syntax = "proto3";
+
+package api;
+
+option go_package = "github.com/julianshen/nebula/api";
+
+// TriggerService provides APIs for managing triggers
+service TriggerService {
+  // ListTriggers lists all triggers under a specified namespace
+  rpc ListTriggers(ListTriggersRequest) returns (ListTriggersResponse) {}
+  
+  // AddTrigger adds a new trigger to a namespace
+  rpc AddTrigger(AddTriggerRequest) returns (AddTriggerResponse) {}
+  
+  // UpdateTrigger updates an existing trigger
+  rpc UpdateTrigger(UpdateTriggerRequest) returns (UpdateTriggerResponse) {}
+  
+  // RemoveTrigger removes a trigger
+  rpc RemoveTrigger(RemoveTriggerRequest) returns (RemoveTriggerResponse) {}
+}
+
+// Condition represents a single condition in a trigger
+message Condition {
+  string field = 1;
+  string operator = 2;
+  string value = 3;
+}
+
+// ConditionGroup represents a group of conditions with a logical operator
+message ConditionGroup {
+  string operator = 1; // "AND" or "OR"
+  repeated Condition conditions = 2;
+  repeated ConditionGroup groups = 3;
+}
+
+// Trigger represents a trigger definition
+message Trigger {
+  string id = 1;
+  string name = 2;
+  string namespace = 3;
+  string object_type = 4;
+  string event_type = 5;
+  bool enabled = 6;
+  ConditionGroup root_group = 7;
+}
+
+// ListTriggersRequest is the request for ListTriggers
+message ListTriggersRequest {
+  string namespace = 1;
+}
+
+// ListTriggersResponse is the response for ListTriggers
+message ListTriggersResponse {
+  repeated Trigger triggers = 1;
+}
+
+// AddTriggerRequest is the request for AddTrigger
+message AddTriggerRequest {
+  Trigger trigger = 1;
+}
+
+// AddTriggerResponse is the response for AddTrigger
+message AddTriggerResponse {
+  Trigger trigger = 1;
+}
+
+// UpdateTriggerRequest is the request for UpdateTrigger
+message UpdateTriggerRequest {
+  Trigger trigger = 1;
+}
+
+// UpdateTriggerResponse is the response for UpdateTrigger
+message UpdateTriggerResponse {
+  Trigger trigger = 1;
+}
+
+// RemoveTriggerRequest is the request for RemoveTrigger
+message RemoveTriggerRequest {
+  string namespace = 1;
+  string id = 2;
+}
+
+// RemoveTriggerResponse is the response for RemoveTrigger
+message RemoveTriggerResponse {
+  bool success = 1;
+}
