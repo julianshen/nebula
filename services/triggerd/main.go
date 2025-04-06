@@ -123,22 +123,19 @@ func handleMessage(msg *nats.Msg, store *triggers.EtcdStore) {
 	log.Printf("Received event: %s, type: %s, namespace: %s",
 		event.ID, event.EventType, event.Namespace)
 
-	// Get all triggers
-	allTriggers := store.GetAllTriggers()
-	log.Printf("Evaluating %d triggers", len(allTriggers))
+	// Get triggers for this namespace
+	namespaceTriggers := store.GetTriggers(event.Namespace)
+	log.Printf("Evaluating %d triggers for namespace %s", len(namespaceTriggers), event.Namespace)
 
 	// Evaluate each trigger
-	for _, trigger := range allTriggers {
+	for _, trigger := range namespaceTriggers {
 		// Skip disabled triggers
 		if !trigger.Enabled {
 			continue
 		}
 
-		// Skip triggers that don't match the event type or namespace
+		// Skip triggers that don't match the event type or object type
 		if trigger.EventType != "" && trigger.EventType != event.EventType {
-			continue
-		}
-		if trigger.Namespace != "" && trigger.Namespace != event.Namespace {
 			continue
 		}
 		if trigger.ObjectType != "" && trigger.ObjectType != event.ObjectType {
