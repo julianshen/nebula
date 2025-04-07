@@ -2,290 +2,135 @@ package triggers
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
+	"github.com/expr-lang/expr"
 	"github.com/julianshen/nebula/data"
 )
 
-// MatchTrigger returns true if the event satisfies the trigger's root condition group
-func MatchTrigger(trigger *data.Trigger, event *data.Event) bool {
+// MatchTrigger returns true if the event satisfies the trigger's criteria.
+// It supports:
+// Expression-based matching using the expr library (preferred)
+//
+// Expression-based matching evaluates a string expression against the event object.
+// The expression must evaluate to a boolean value.
+// Example: event.event_type == "user.created" && event.payload.after.role == "admin"
+//
+// See the event system specification for more details on the expression language.
+func MatchTrigger(trigger *data.Trigger, event *data.Event) (bool, error) {
 	if trigger == nil || !trigger.Enabled {
-		return false
+		return false, nil
 	}
-	return evalGroup(trigger.RootGroup, event)
+
+	// If criteria is empty, match based on event type and namespace
+	if trigger.Criteria == "" {
+		return (trigger.EventType == "" || trigger.EventType == event.EventType) &&
+			(trigger.Namespace == "" || trigger.Namespace == event.Namespace) &&
+			(trigger.ObjectType == "" || trigger.ObjectType == event.ObjectType), nil
+	}
+
+	// If the trigger has a criteria expression, evaluate it
+	return evaluateTriggerCriteria(event, trigger.Criteria)
 }
 
-func evalGroup(group data.ConditionGroup, event *data.Event) bool {
-	fmt.Printf("Evaluating group: %+v\n", group)
-	switch strings.ToUpper(group.Operator) {
-	case "AND":
-		for _, cond := range group.Conditions {
-			res := evalCondition(cond, event)
-			fmt.Printf("AND condition %+v result: %v\n", cond, res)
-			if !res {
-				return false
-			}
-		}
-		for _, sub := range group.Groups {
-			res := evalGroup(sub, event)
-			fmt.Printf("AND subgroup %+v result: %v\n", sub, res)
-			if !res {
-				return false
-			}
-		}
-		return true
-	case "OR":
-		for _, cond := range group.Conditions {
-			res := evalCondition(cond, event)
-			fmt.Printf("OR condition %+v result: %v\n", cond, res)
-			if res {
-				return true
-			}
-		}
-		for _, sub := range group.Groups {
-			res := evalGroup(sub, event)
-			fmt.Printf("OR subgroup %+v result: %v\n", sub, res)
-			if res {
-				return true
-			}
-		}
-		return false
-	case "NOT":
-		for _, cond := range group.Conditions {
-			res := evalCondition(cond, event)
-			fmt.Printf("NOT condition %+v result: %v\n", cond, res)
-			if res {
-				return false
-			}
-		}
-		for _, sub := range group.Groups {
-			res := evalGroup(sub, event)
-			fmt.Printf("NOT subgroup %+v result: %v\n", sub, res)
-			if res {
-				return false
-			}
-		}
-		return true
-	default:
-		return false
+// has(obj, "a.b.c") returns true if all keys exist down the path
+func has(args ...any) (any, error) {
+	if len(args) != 2 {
+		return false, fmt.Errorf("has() expects 2 arguments")
 	}
-}
-
-func evalCondition(cond data.Condition, event *data.Event) bool {
-	fieldVal := getFieldValue(event, cond.Field)
-	fmt.Printf("Condition %+v resolved fieldVal: %#v\n", cond, fieldVal)
-	if fieldVal == nil {
-		return false
+	root, ok := args[0].(map[string]interface{})
+	if !ok {
+		return false, nil
+	}
+	path, ok := args[1].(string)
+	if !ok {
+		return false, nil
 	}
 
-	valStr := toString(fieldVal)
-	fmt.Printf("Condition %+v resolved valStr: %q\n", cond, valStr)
-	switch cond.Operator {
-	case "eq", "==":
-		return valStr == cond.Value
-	case "neq", "!=":
-		return valStr != cond.Value
-	case "gt":
-		return compare(valStr, cond.Value) > 0
-	case "lt":
-		return compare(valStr, cond.Value) < 0
-	case "gte":
-		return compare(valStr, cond.Value) >= 0
-	case "lte":
-		return compare(valStr, cond.Value) <= 0
-	case "contains":
-		return strings.Contains(valStr, cond.Value)
-	case "regex":
-		// TODO: implement regex matching
-		return false
-	default:
-		return false
-	}
-}
-
-func getFieldValue(event *data.Event, path string) interface{} {
 	parts := strings.Split(path, ".")
-	var current interface{} = event
-
-	fmt.Printf("Resolving path %q with %d parts\n", path, len(parts))
+	current := root
 	for i, part := range parts {
-		fmt.Printf("Resolving part %d: %q, current type: %T\n", i, part, current)
-
-		// Handle nil values
-		if current == nil {
-			return nil
+		val, exists := current[part]
+		if !exists {
+			return false, nil
 		}
-
-		switch obj := current.(type) {
-		case *data.Event:
-			switch part {
-			case "event_id":
-				current = obj.ID
-			case "event_type":
-				current = obj.EventType
-			case "event_version":
-				current = obj.EventVersion
-			case "namespace":
-				current = obj.Namespace
-			case "object_type":
-				current = obj.ObjectType
-			case "object_id":
-				current = obj.ObjectID
-			case "timestamp":
-				current = obj.Timestamp
-			case "actor":
-				current = obj.Actor
-			case "context":
-				current = obj.Context
-			case "payload":
-				current = obj.Payload
-			case "nats_meta":
-				current = obj.NatsMeta
-			default:
-				return nil
-			}
-		case map[string]interface{}:
-			val, ok := obj[part]
-			if !ok {
-				return nil
-			}
-			current = val
-		case struct {
-			Type string
-			ID   string
-		}:
-			if part == "type" {
-				current = obj.Type
-			} else if part == "id" {
-				current = obj.ID
-			} else {
-				return nil
-			}
-		case struct {
-			RequestID string
-			TraceID   string
-		}:
-			if part == "request_id" {
-				current = obj.RequestID
-			} else if part == "trace_id" {
-				current = obj.TraceID
-			} else {
-				return nil
-			}
-		case struct {
-			Stream     string
-			Sequence   uint64
-			ReceivedAt time.Time
-		}:
-			if part == "stream" {
-				current = obj.Stream
-			} else if part == "sequence" {
-				current = obj.Sequence
-			} else if part == "received_at" {
-				current = obj.ReceivedAt
-			} else {
-				return nil
-			}
-		default:
-			// Special case for Event.Payload
-			// Try to access fields by name using reflection
-			if part == "before" || part == "after" {
-				// Try to access Payload.Before or Payload.After
-				fmt.Printf("Trying to access %s field\n", part)
-
-				// Direct field access for Event.Payload
-				if i == 1 && parts[0] == "payload" {
-					if event.Payload.Before != nil && part == "before" {
-						current = event.Payload.Before
-						continue
-					}
-					if event.Payload.After != nil && part == "after" {
-						current = event.Payload.After
-						continue
-					}
-				}
-			} else if i == 2 && parts[0] == "payload" && (parts[1] == "before" || parts[1] == "after") {
-				// Handle payload.before.X or payload.after.X
-				if parts[1] == "before" && event.Payload.Before != nil {
-					if val, ok := event.Payload.Before[part]; ok {
-						current = val
-						continue
-					}
-				} else if parts[1] == "after" && event.Payload.After != nil {
-					if val, ok := event.Payload.After[part]; ok {
-						current = val
-						continue
-					}
-				}
-			}
-
-			// Try reflection for unknown types
-			fmt.Printf("Unknown type: %T for part %q\n", current, part)
-			return nil
+		if i == len(parts)-1 {
+			return true, nil
 		}
+		// If not final, it must be a nested map
+		next, ok := val.(map[string]interface{})
+		if !ok {
+			return false, nil
+		}
+		current = next
 	}
-	return current
+	return true, nil
 }
 
-func toString(val interface{}) string {
-	switch v := val.(type) {
-	case string:
-		return v
-	case int:
-		return strconv.Itoa(v)
-	case int8:
-		return strconv.FormatInt(int64(v), 10)
-	case int16:
-		return strconv.FormatInt(int64(v), 10)
-	case int32:
-		return strconv.FormatInt(int64(v), 10)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case uint:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint8:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint16:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint32:
-		return strconv.FormatUint(uint64(v), 10)
-	case uint64:
-		return strconv.FormatUint(v, 10)
-	case float32:
-		return strconv.FormatFloat(float64(v), 'f', -1, 64)
-	case float64:
-		return strconv.FormatFloat(v, 'f', -1, 64)
-	case bool:
-		if v {
-			return "true"
-		}
-		return "false"
-	case time.Time:
-		return v.Format(time.RFC3339)
-	default:
-		return ""
+// EvaluateTriggerCriteria safely evaluates a criteria string against the given event
+func evaluateTriggerCriteria(event *data.Event, criteria string) (bool, error) {
+	// If criteria is empty, match based on event type and namespace
+	if criteria == "" {
+		// For empty criteria, we'll just return true since we don't have trigger information here
+		// The actual matching based on event type and namespace is done in the MatchTrigger function
+		return true, nil
 	}
-}
 
-func compare(a, b string) int {
-	// try numeric comparison
-	af, aerr := strconv.ParseFloat(a, 64)
-	bf, berr := strconv.ParseFloat(b, 64)
-	if aerr == nil && berr == nil {
-		if af < bf {
-			return -1
-		} else if af > bf {
-			return 1
-		}
-		return 0
+	// Create a map representation of the event that matches JSON field names
+	eventMap := map[string]interface{}{
+		"event_id":      event.ID,
+		"event_type":    event.EventType,
+		"event_version": event.EventVersion,
+		"namespace":     event.Namespace,
+		"object_type":   event.ObjectType,
+		"object_id":     event.ObjectID,
+		"timestamp":     event.Timestamp,
+		"actor": map[string]interface{}{
+			"type": event.Actor.Type,
+			"id":   event.Actor.ID,
+		},
+		"context": map[string]interface{}{
+			"request_id": event.Context.RequestID,
+			"trace_id":   event.Context.TraceID,
+		},
+		"payload": map[string]interface{}{
+			"before": event.Payload.Before,
+			"after":  event.Payload.After,
+		},
+		"nats_meta": map[string]interface{}{
+			"stream":      event.NatsMeta.Stream,
+			"sequence":    event.NatsMeta.Sequence,
+			"received_at": event.NatsMeta.ReceivedAt,
+		},
 	}
-	// fallback to string comparison
-	if a < b {
-		return -1
-	} else if a > b {
-		return 1
+
+	// Create environment with event as the root variable
+	env := map[string]interface{}{
+		"event": eventMap,
 	}
-	return 0
+
+	// Compile the expression with custom functions
+	options := []expr.Option{
+		expr.Env(env),
+		expr.Function("has", has),
+	}
+
+	program, err := expr.Compile(criteria, options...)
+	if err != nil {
+		return false, fmt.Errorf("failed to compile criteria: %w", err)
+	}
+
+	// Run the compiled expression
+	output, err := expr.Run(program, env)
+	if err != nil {
+		return false, fmt.Errorf("failed to evaluate criteria: %w", err)
+	}
+
+	// Must return boolean
+	result, ok := output.(bool)
+	if !ok {
+		return false, fmt.Errorf("expression did not return a boolean")
+	}
+
+	return result, nil
 }

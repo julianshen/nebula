@@ -48,7 +48,10 @@ func main() {
 	// Test matching each event against the trigger
 	fmt.Println("\n=== Testing Trigger Matching ===")
 	for i, event := range events {
-		matched := triggers.MatchTrigger(loadedTrigger, &events[i])
+		matched, err := triggers.MatchTrigger(loadedTrigger, &events[i])
+		if err != nil {
+			log.Fatalf("Error matching trigger: %v", err)
+		}
 		fmt.Printf("Event %s (amount: %v, status: %s, region: %s): %v\n",
 			event.ID, event.Payload.After["amount"], event.Payload.After["status"],
 			event.Payload.After["region"], matched)
@@ -70,38 +73,7 @@ func createHighValueOrderTrigger() *data.Trigger {
 		ObjectType: "order",
 		EventType:  "created",
 		Enabled:    true,
-		RootGroup: data.ConditionGroup{
-			Operator: "AND",
-			Conditions: []data.Condition{
-				{
-					Field:    "payload.after.amount",
-					Operator: "gt",
-					Value:    "1000",
-				},
-				{
-					Field:    "payload.after.status",
-					Operator: "eq",
-					Value:    "confirmed",
-				},
-			},
-			Groups: []data.ConditionGroup{
-				{
-					Operator: "OR",
-					Conditions: []data.Condition{
-						{
-							Field:    "payload.after.region",
-							Operator: "eq",
-							Value:    "US",
-						},
-						{
-							Field:    "payload.after.region",
-							Operator: "eq",
-							Value:    "EU",
-						},
-					},
-				},
-			},
-		},
+		Criteria:   `event.payload.after.amount > 1000 && event.payload.after.status == "confirmed" && (event.payload.after.region == "US" || event.payload.after.region == "EU")`,
 	}
 }
 
@@ -151,7 +123,11 @@ func testInMemoryTriggerStore(trigger *data.Trigger, events []data.Event) {
 	for i, event := range events {
 		fmt.Printf("Testing event %s against all triggers in store...\n", event.ID)
 		for _, t := range allTriggers {
-			if triggers.MatchTrigger(t, &events[i]) {
+			matched, err := triggers.MatchTrigger(t, &events[i])
+			if err != nil {
+				log.Fatalf("Error matching trigger: %v", err)
+			}
+			if matched {
 				fmt.Printf("  Matched trigger: %s - %s\n", t.ID, t.Name)
 			}
 		}

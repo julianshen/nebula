@@ -14,24 +14,7 @@ namespace: sales
 object_type: order
 event_type: created
 enabled: true
-root_group:
-  operator: AND
-  conditions:
-    - field: payload.after.amount
-      operator: gt
-      value: "1000"
-    - field: payload.after.status
-      operator: eq
-      value: "confirmed"
-  groups:
-    - operator: OR
-      conditions:
-        - field: payload.after.region
-          operator: eq
-          value: "US"
-        - field: payload.after.region
-          operator: eq
-          value: "EU"
+criteria: event.payload.after.amount > 1000 && event.payload.after.status == "confirmed" && (event.payload.after.region == "US" || event.payload.after.region == "EU")
 `
 
 	// Create a reader from the YAML content
@@ -63,34 +46,10 @@ root_group:
 		t.Error("Expected Enabled to be true")
 	}
 
-	// Verify root group
-	if trigger.RootGroup.Operator != "AND" {
-		t.Errorf("Expected RootGroup.Operator 'AND', got '%s'", trigger.RootGroup.Operator)
-	}
-
-	// Verify conditions
-	if len(trigger.RootGroup.Conditions) != 2 {
-		t.Fatalf("Expected 2 conditions, got %d", len(trigger.RootGroup.Conditions))
-	}
-	if trigger.RootGroup.Conditions[0].Field != "payload.after.amount" {
-		t.Errorf("Expected condition 0 field 'payload.after.amount', got '%s'", trigger.RootGroup.Conditions[0].Field)
-	}
-	if trigger.RootGroup.Conditions[0].Operator != "gt" {
-		t.Errorf("Expected condition 0 operator 'gt', got '%s'", trigger.RootGroup.Conditions[0].Operator)
-	}
-	if trigger.RootGroup.Conditions[0].Value != "1000" {
-		t.Errorf("Expected condition 0 value '1000', got '%s'", trigger.RootGroup.Conditions[0].Value)
-	}
-
-	// Verify nested groups
-	if len(trigger.RootGroup.Groups) != 1 {
-		t.Fatalf("Expected 1 nested group, got %d", len(trigger.RootGroup.Groups))
-	}
-	if trigger.RootGroup.Groups[0].Operator != "OR" {
-		t.Errorf("Expected nested group operator 'OR', got '%s'", trigger.RootGroup.Groups[0].Operator)
-	}
-	if len(trigger.RootGroup.Groups[0].Conditions) != 2 {
-		t.Fatalf("Expected 2 conditions in nested group, got %d", len(trigger.RootGroup.Groups[0].Conditions))
+	// Verify criteria
+	expectedCriteria := `event.payload.after.amount > 1000 && event.payload.after.status == "confirmed" && (event.payload.after.region == "US" || event.payload.after.region == "EU")`
+	if trigger.Criteria != expectedCriteria {
+		t.Errorf("Expected criteria '%s', got '%s'", expectedCriteria, trigger.Criteria)
 	}
 }
 

@@ -49,20 +49,6 @@ func createUpdatedTrigger() *data.Trigger {
 		ObjectType: "order",
 		EventType:  "created",
 		Enabled:    true,
-		RootGroup: data.ConditionGroup{
-			Operator: "AND",
-			Conditions: []data.Condition{
-				{
-					Field:    "payload.after.amount",
-					Operator: "gt",
-					Value:    "500",
-				},
-				{
-					Field:    "payload.after.region",
-					Operator: "eq",
-					Value:    "EU",
-				},
-			},
-		},
+		Criteria:   `event.payload.after.amount > 500 && event.payload.after.region == "EU"`,
 	}
 }

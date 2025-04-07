@@ -55,37 +55,6 @@ func createHighValueOrderTrigger() *data.Trigger {
 		ObjectType: "order",
 		EventType:  "created",
 		Enabled:    true,
-		RootGroup: data.ConditionGroup{
-			Operator: "AND",
-			Conditions: []data.Condition{
-				{
-					Field:    "payload.after.amount",
-					Operator: "gt",
-					Value:    "1000",
-				},
-				{
-					Field:    "payload.after.status",
-					Operator: "eq",
-					Value:    "confirmed",
-				},
-			},
-			Groups: []data.ConditionGroup{
-				{
-					Operator: "OR",
-					Conditions: []data.Condition{
-						{
-							Field:    "payload.after.region",
-							Operator: "eq",
-							Value:    "US",
-						},
-						{
-							Field:    "payload.after.region",
-							Operator: "eq",
-							Value:    "EU",
-						},
-					},
-				},
-			},
-		},
+		Criteria:   `event.payload.after.amount > 1000 && event.payload.after.status == "confirmed" && (event.payload.after.region == "US" || event.payload.after.region == "EU")`,
 	}
 }

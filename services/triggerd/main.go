@@ -282,7 +282,12 @@ func processEvent(namespace string, event *data.Event) {
 		}
 
 		// Evaluate trigger conditions
-		if triggers.MatchTrigger(trigger, event) {
+		matched, err := triggers.MatchTrigger(trigger, event)
+		if err != nil {
+			log.Printf("Error evaluating trigger %s: %v", trigger.ID, err)
+			continue
+		}
+		if matched {
 			log.Printf("Trigger matched: %s - %s", trigger.ID, trigger.Name)
 			// TODO: Execute trigger action
 		}

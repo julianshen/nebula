@@ -45,89 +45,92 @@ func TestMatchTrigger(t *testing.T) {
 		want    bool
 	}{
 		{
-			name: "simple eq match",
+			name: "basic matching - event type only",
 			trigger: data.Trigger{
-				Enabled: true,
-				RootGroup: data.ConditionGroup{
-					Operator: "AND",
-					Conditions: []data.Condition{
-						{Field: "event_type", Operator: "eq", Value: "user.created"},
-					},
-				},
+				Enabled:   true,
+				EventType: "user.created",
 			},
 			want: true,
 		},
 		{
-			name: "nested AND OR match",
+			name: "basic matching - namespace only",
 			trigger: data.Trigger{
-				Enabled: true,
-				RootGroup: data.ConditionGroup{
-					Operator: "AND",
-					Conditions: []data.Condition{
-						{Field: "event_type", Operator: "eq", Value: "user.created"},
-					},
-					Groups: []data.ConditionGroup{
-						{
-							Operator: "OR",
-							Conditions: []data.Condition{
-								{Field: "payload.after.role", Operator: "eq", Value: "admin"},
-								{Field: "payload.after.role", Operator: "eq", Value: "superuser"},
-							},
-						},
-					},
-				},
+				Enabled:   true,
+				Namespace: "core",
 			},
 			want: true,
 		},
 		{
-			name: "numeric gt match",
+			name: "basic matching - object type only",
 			trigger: data.Trigger{
-				Enabled: true,
-				RootGroup: data.ConditionGroup{
-					Operator: "AND",
-					Conditions: []data.Condition{
-						{Field: "payload.after.amount", Operator: "gt", Value: "1000"},
-					},
-				},
+				Enabled:    true,
+				ObjectType: "user",
 			},
 			want: true,
 		},
 		{
-			name: "numeric lt no match",
+			name: "basic matching - all fields match",
 			trigger: data.Trigger{
-				Enabled: true,
-				RootGroup: data.ConditionGroup{
-					Operator: "AND",
-					Conditions: []data.Condition{
-						{Field: "payload.after.amount", Operator: "lt", Value: "1000"},
-					},
-				},
+				Enabled:    true,
+				EventType:  "user.created",
+				Namespace:  "core",
+				ObjectType: "user",
+			},
+			want: true,
+		},
+		{
+			name: "basic matching - no match",
+			trigger: data.Trigger{
+				Enabled:   true,
+				EventType: "user.updated",
 			},
 			want: false,
 		},
 		{
-			name: "field not found",
+			name: "expr simple match",
 			trigger: data.Trigger{
-				Enabled: true,
-				RootGroup: data.ConditionGroup{
-					Operator: "AND",
-					Conditions: []data.Condition{
-						{Field: "payload.after.nonexistent", Operator: "eq", Value: "x"},
-					},
-				},
+				Enabled:  true,
+				Criteria: `event.event_type == "user.created"`,
+			},
+			want: true,
+		},
+		{
+			name: "expr payload match",
+			trigger: data.Trigger{
+				Enabled:  true,
+				Criteria: `event.event_type == "user.created" && event.payload.after.role == "admin"`,
+			},
+			want: true,
+		},
+		{
+			name: "expr numeric comparison",
+			trigger: data.Trigger{
+				Enabled:  true,
+				Criteria: `event.payload.after.amount > 1000`,
+			},
+			want: true,
+		},
+		{
+			name: "expr no match",
+			trigger: data.Trigger{
+				Enabled:  true,
+				Criteria: `event.event_type == "user.updated"`,
+			},
+			want: false,
+		},
+		{
+			name: "expr field not found",
+			trigger: data.Trigger{
+				Enabled:  true,
+				Criteria: `event.payload.after.nonexistent == "x"`,
 			},
 			want: false,
 		},
 		{
 			name: "disabled trigger",
 			trigger: data.Trigger{
-				Enabled: false,
-				RootGroup: data.ConditionGroup{
-					Operator: "AND",
-					Conditions: []data.Condition{
-						{Field: "event_type", Operator: "eq", Value: "user.created"},
-					},
-				},
+				Enabled:   false,
+				EventType: "user.created",
 			},
 			want: false,
 		},
@@ -136,12 +139,19 @@ func TestMatchTrigger(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if !tt.trigger.Enabled {
-				if MatchTrigger(&tt.trigger, event) {
+				matched, err := MatchTrigger(&tt.trigger, event)
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+				if matched {
 					t.Errorf("expected disabled trigger to not match")
 				}
 				return
 			}
-			got := MatchTrigger(&tt.trigger, event)
+			got, err := MatchTrigger(&tt.trigger, event)
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
 			if got != tt.want {
 				t.Errorf("expected %v, got %v", tt.want, got)
 			}

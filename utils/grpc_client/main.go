@@ -7,7 +7,7 @@ import (
 	"log"
 	"time"
 
-	pb "github.com/julianshen/nebula/api/gen/api/proto"
+	pb "github.com/julianshen/nebula/api/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -90,8 +90,7 @@ func listTriggers(ctx context.Context, client pb.TriggerServiceClient, namespace
 		fmt.Printf("   Object Type: %s\n", trigger.ObjectType)
 		fmt.Printf("   Event Type: %s\n", trigger.EventType)
 		fmt.Printf("   Enabled: %v\n", trigger.Enabled)
-		fmt.Printf("   Conditions:\n")
-		printConditionGroup(trigger.RootGroup, "     ")
+		fmt.Printf("   Criteria: %s\n", trigger.Criteria)
 		fmt.Println()
 	}
 }
@@ -148,6 +147,11 @@ func removeTrigger(ctx context.Context, client pb.TriggerServiceClient, namespac
 
 // createTrigger creates a trigger with the specified parameters
 func createTrigger(namespace, id, name, objectType, eventType, field1, op1, value1, field2, op2, value2 string) *pb.Trigger {
+	// Create criteria expression
+	criteria := fmt.Sprintf("event.%s %s %q && event.%s %s %q",
+		field1, convertOperator(op1), value1,
+		field2, convertOperator(op2), value2)
+
 	return &pb.Trigger{
 		Id:         id,
 		Name:       name,
@@ -155,34 +159,26 @@ func createTrigger(namespace, id, name, objectType, eventType, field1, op1, valu
 		ObjectType: objectType,
 		EventType:  eventType,
 		Enabled:    true,
-		RootGroup: &pb.ConditionGroup{
-			Operator: "AND",
-			Conditions: []*pb.Condition{
-				{
-					Field:    field1,
-					Operator: op1,
-					Value:    value1,
-				},
-				{
-					Field:    field2,
-					Operator: op2,
-					Value:    value2,
-				},
-			},
-		},
+		Criteria:   criteria,
 	}
 }
 
-// printConditionGroup prints a condition group recursively
-func printConditionGroup(group *pb.ConditionGroup, indent string) {
-	fmt.Printf("%sOperator: %s\n", indent, group.Operator)
-
-	for _, condition := range group.Conditions {
-		fmt.Printf("%s- %s %s %s\n", indent, condition.Field, condition.Operator, condition.Value)
-	}
-
-	for i, subGroup := range group.Groups {
-		fmt.Printf("%sSubgroup %d:\n", indent, i+1)
-		printConditionGroup(subGroup, indent+"  ")
+// convertOperator converts operator from short form to expression form
+func convertOperator(op string) string {
+	switch op {
+	case "eq":
+		return "=="
+	case "neq":
+		return "!="
+	case "gt":
+		return ">"
+	case "lt":
+		return "<"
+	case "gte":
+		return ">="
+	case "lte":
+		return "<="
+	default:
+		return op
 	}
 }

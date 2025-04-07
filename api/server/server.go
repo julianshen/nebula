@@ -6,7 +6,7 @@ import (
 	"log"
 	"net"
 
-	pb "github.com/julianshen/nebula/api/gen/api/proto"
+	pb "github.com/julianshen/nebula/api/proto"
 	"github.com/julianshen/nebula/data"
 	"github.com/julianshen/nebula/handlers/triggers"
 	"google.golang.org/grpc"
@@ -105,68 +105,26 @@ func (s *TriggerServer) RemoveTrigger(ctx context.Context, req *pb.RemoveTrigger
 
 func convertToPbTrigger(t *data.Trigger) *pb.Trigger {
 	return &pb.Trigger{
-		Id:         t.ID,
-		Name:       t.Name,
-		Namespace:  t.Namespace,
-		ObjectType: t.ObjectType,
-		EventType:  t.EventType,
-		Enabled:    t.Enabled,
-		RootGroup:  convertToPbConditionGroup(&t.RootGroup),
+		Id:          t.ID,
+		Name:        t.Name,
+		Namespace:   t.Namespace,
+		ObjectType:  t.ObjectType,
+		EventType:   t.EventType,
+		Enabled:     t.Enabled,
+		Criteria:    t.Criteria,
+		Description: t.Description,
 	}
-}
-
-func convertToPbConditionGroup(g *data.ConditionGroup) *pb.ConditionGroup {
-	pbGroup := &pb.ConditionGroup{
-		Operator:   g.Operator,
-		Conditions: make([]*pb.Condition, 0, len(g.Conditions)),
-		Groups:     make([]*pb.ConditionGroup, 0, len(g.Groups)),
-	}
-
-	for _, c := range g.Conditions {
-		pbGroup.Conditions = append(pbGroup.Conditions, &pb.Condition{
-			Field:    c.Field,
-			Operator: c.Operator,
-			Value:    c.Value,
-		})
-	}
-
-	for _, subGroup := range g.Groups {
-		pbGroup.Groups = append(pbGroup.Groups, convertToPbConditionGroup(&subGroup))
-	}
-
-	return pbGroup
 }
 
 func convertToDataTrigger(t *pb.Trigger) *data.Trigger {
 	return &data.Trigger{
-		ID:         t.Id,
-		Name:       t.Name,
-		Namespace:  t.Namespace,
-		ObjectType: t.ObjectType,
-		EventType:  t.EventType,
-		Enabled:    t.Enabled,
-		RootGroup:  *convertToDataConditionGroup(t.RootGroup),
+		ID:          t.Id,
+		Name:        t.Name,
+		Namespace:   t.Namespace,
+		ObjectType:  t.ObjectType,
+		EventType:   t.EventType,
+		Enabled:     t.Enabled,
+		Criteria:    t.Criteria,
+		Description: t.Description,
 	}
-}
-
-func convertToDataConditionGroup(g *pb.ConditionGroup) *data.ConditionGroup {
-	dataGroup := &data.ConditionGroup{
-		Operator:   g.Operator,
-		Conditions: make([]data.Condition, 0, len(g.Conditions)),
-		Groups:     make([]data.ConditionGroup, 0, len(g.Groups)),
-	}
-
-	for _, c := range g.Conditions {
-		dataGroup.Conditions = append(dataGroup.Conditions, data.Condition{
-			Field:    c.Field,
-			Operator: c.Operator,
-			Value:    c.Value,
-		})
-	}
-
-	for _, subGroup := range g.Groups {
-		dataGroup.Groups = append(dataGroup.Groups, *convertToDataConditionGroup(subGroup))
-	}
-
-	return dataGroup
 }

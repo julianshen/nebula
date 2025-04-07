@@ -19,20 +19,6 @@ service TriggerService {
   rpc RemoveTrigger(RemoveTriggerRequest) returns (RemoveTriggerResponse) {}
 }
 
-// Condition represents a single condition in a trigger
-message Condition {
-  string field = 1;
-  string operator = 2;
-  string value = 3;
-}
-
-// ConditionGroup represents a group of conditions with a logical operator
-message ConditionGroup {
-  string operator = 1; // "AND" or "OR"
-  repeated Condition conditions = 2;
-  repeated ConditionGroup groups = 3;
-}
-
 // Trigger represents a trigger definition
 message Trigger {
   string id = 1;
@@ -41,7 +27,8 @@ message Trigger {
   string object_type = 4;
   string event_type = 5;
   bool enabled = 6;
-  ConditionGroup root_group = 7;
+  string criteria = 7;
+  string description = 8;
 }
 
 // ListTriggersRequest is the request for ListTriggers

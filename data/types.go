@@ -34,27 +34,18 @@ type Event struct {
 	} `json:"nats_meta"`
 }
 
-type Condition struct {
-	Field    string `json:"field" yaml:"field"`
-	Operator string `json:"operator" yaml:"operator"` // eq, neq, gt, lt, gte, lte, contains, regex, etc.
-	Value    string `json:"value" yaml:"value"`
-}
-
-type ConditionGroup struct {
-	Operator   string           `json:"operator" yaml:"operator"` // AND, OR, NOT
-	Conditions []Condition      `json:"conditions,omitempty" yaml:"conditions,omitempty"`
-	Groups     []ConditionGroup `json:"groups,omitempty" yaml:"groups,omitempty"`
-}
-
 type Trigger struct {
-	ID          string         `json:"id" yaml:"id"`
-	Name        string         `json:"name" yaml:"name"`
-	Namespace   string         `json:"namespace" yaml:"namespace"`
-	ObjectType  string         `json:"object_type" yaml:"object_type"`
-	EventType   string         `json:"event_type" yaml:"event_type"`
-	RootGroup   ConditionGroup `json:"root_group" yaml:"root_group"`
-	Description string         `json:"description,omitempty" yaml:"description,omitempty"`
-	Enabled     bool           `json:"enabled" yaml:"enabled"`
+	ID         string `json:"id" yaml:"id"`
+	Name       string `json:"name" yaml:"name"`
+	Namespace  string `json:"namespace" yaml:"namespace"`
+	ObjectType string `json:"object_type" yaml:"object_type"`
+	EventType  string `json:"event_type" yaml:"event_type"`
+	// Criteria is an expression that is evaluated against the event.
+	// It uses the expr language (https://github.com/expr-lang/expr) and must evaluate to a boolean.
+	// Example: event.event_type == "user.created" && event.payload.after.role == "admin"
+	Criteria    string `json:"criteria" yaml:"criteria"`
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	Enabled     bool   `json:"enabled" yaml:"enabled"`
 }
 
 // ToYAML marshals the trigger to YAML
