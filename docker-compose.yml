@@ -25,13 +25,6 @@ services:
       - "2379:2379"
       - "2380:2380"
     restart: unless-stopped
-  rethinkdb:
-    image: rethinkdb:2.4.0
-    container_name: nebula-rethinkdb
-    ports:
-      - "28015:28015"
-    restart: unless-stopped
-
   redis:
     image: redis:6.2.6
     container_name: nebula-redis
